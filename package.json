@@ -1,0 +1,13 @@
+{
+  "name": "zapsync-showcase",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public showcase of ZapSync: architecture, engineering decisions and tested code excerpts",
+  "scripts": {
+    "test": "node --test snippets/test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

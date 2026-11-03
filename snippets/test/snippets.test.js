@@ -77,3 +77,71 @@ test('tenant scope: another business id cannot update the order', async () => {
   assert.strictEqual(owner.code, 200);
   assert.strictEqual(orders[0].status, 'confirmed');
 });
+
+const { cosine, contentHash, itemsToEmbed, semanticSearch, hybridSearch } = require('../hybrid-search');
+const { score, NO_LEAKS } = require('../eval-scorer');
+
+test('cosine: same direction = 1, orthogonal = 0, zero vector = 0', () => {
+  assert.strictEqual(cosine([1, 2, 3], [2, 4, 6]).toFixed(6), '1.000000');
+  assert.strictEqual(cosine([1, 0], [0, 1]), 0);
+  assert.strictEqual(cosine([0, 0], [1, 1]), 0);
+});
+
+test('only new or edited items are re-embedded', () => {
+  const model = 'text-embedding-3-small';
+  const coke = { name: 'Coke 2L', category: 'Drinks' };
+  coke.storedHash = contentHash(coke, model);
+  const juice = { name: 'Orange juice', category: 'Drinks', storedHash: null }; // new
+  const burger = { name: 'Burger', category: 'Food' };
+  burger.storedHash = contentHash(burger, model);
+  burger.description = 'now with bacon'; // edited after embedding
+  assert.deepStrictEqual(itemsToEmbed([coke, juice, burger], model).map((i) => i.name), ['Orange juice', 'Burger']);
+  assert.strictEqual(itemsToEmbed([coke], 'another-model').length, 1, 'changing the model re-embeds');
+});
+
+test('semantic search ranks by similarity and drops weak matches', () => {
+  const items = [
+    { code: 'B1', vector: [1, 0, 0] },
+    { code: 'B2', vector: [0.9, 0.1, 0] },
+    { code: 'F1', vector: [0, 1, 0] },
+  ];
+  const r = semanticSearch([1, 0, 0], items, { minScore: 0.5 });
+  assert.deepStrictEqual(r.map((x) => x.item.code), ['B1', 'B2']);
+});
+
+test('hybrid search: keyword first, semantic only adds what was missing', async () => {
+  const kw = [{ code: 'B2', name: 'Orange juice' }];
+  const sem = [{ item: { code: 'B2' } }, { item: { code: 'B1', name: 'Coke' } }];
+  const r = await hybridSearch({ keyword: async () => kw, semantic: async () => sem });
+  assert.deepStrictEqual(r.map((i) => i.code), ['B2', 'B1']);
+});
+
+test('hybrid search survives the embeddings API being down', async () => {
+  const r = await hybridSearch({
+    keyword: async () => [{ code: 'B1' }],
+    semantic: async () => { throw new Error('503'); },
+  });
+  assert.deepStrictEqual(r.map((i) => i.code), ['B1']);
+});
+
+test('eval scorer: correct order passes regardless of item order', () => {
+  const expected = { event: 'order', items: [{ code: 'B1', qty: 1 }, { code: 'L1', qty: 1 }], payment: 'PIX', mustNotContain: NO_LEAKS };
+  const reply = {
+    reply: 'Done! Your order was sent.', event_type: 'order',
+    order: { items: [{ external_code: 'L1', quantity: 1 }, { external_code: 'B1', quantity: 1 }], payment: 'PIX' },
+  };
+  assert.deepStrictEqual(score(expected, reply), []);
+});
+
+test('eval scorer: wrong quantity, wrong event and leaked JSON all fail', () => {
+  const expected = { event: 'order', items: [{ code: 'B1', qty: 1 }], mustNotContain: NO_LEAKS };
+  const reply = {
+    reply: 'Ok {"event_type":"none"}', event_type: 'none',
+    order: { items: [{ external_code: 'B1', quantity: 2 }] },
+  };
+  const f = score(expected, reply);
+  assert.ok(f.some((x) => x.startsWith('event')));
+  assert.ok(f.some((x) => x.startsWith('items')));
+  assert.ok(f.some((x) => x.includes('must not contain')));
+  assert.deepStrictEqual(score(expected, null), ['reply field missing']);
+});

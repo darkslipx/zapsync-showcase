@@ -25,3 +25,12 @@ When a payment fails, the tenant gets a grace period and is then suspended: logi
 
 ## 8. Vanilla frontend without a build step
 Each page is a self-contained HTML file. For a solo developer this means zero build tooling to maintain, instant deploys and pages that load fast on cheap phones, which is what many restaurant owners use.
+
+## 9. Embeddings without pgvector
+Semantic search needed vectors, and the obvious choice was pgvector, which the managed PostgreSQL on Railway does not ship. A single business has at most a few hundred menu items, so vectors are stored in a `REAL[]` column and compared with cosine similarity in Node, which takes well under a millisecond at that size. No new infrastructure, no extension to maintain, and the same code runs on any PostgreSQL. If a tenant ever grows into tens of thousands of items, moving to pgvector is a storage change, not a redesign.
+
+## 10. Deterministic eval scorer instead of LLM-as-judge
+Using a model to grade the model is convenient, but then the score drifts with the judge and a regression can hide behind a lenient grade. The bot already returns structured JSON, so the scorer compares fields (event type, item codes and quantities, payment, date) and runs regexes over the text the customer sees. The score is reproducible, and the scorer has its own tests.
+
+## 11. MCP server through the API, not the database
+The MCP server could have connected straight to PostgreSQL. Instead it logs in to the panel API as the owner, the same way the browser does. Every tool call goes through the same tenant scoping, validation, rate limits and audit log as the panel, so an assistant can never see or change another business's data, and there is one less place holding database credentials.

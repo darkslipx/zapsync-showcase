@@ -1,36 +1,38 @@
-# Engineering decisions
+# Decisões de engenharia
 
-Short records of choices I made and why. Each one came from a real constraint of running a SaaS alone.
+[![Português](https://img.shields.io/badge/-Portugu%C3%AAs-009C3B?style=for-the-badge)](decisions.md) [![English](https://img.shields.io/badge/-English-lightgrey?style=for-the-badge)](decisions.en.md)
 
-## 1. Official WhatsApp Cloud API instead of unofficial libraries
-Unofficial WhatsApp Web libraries are cheaper to start with, but numbers get banned and sessions drop. Restaurants depend on WhatsApp for revenue, so reliability and compliance won. The cost is Meta's approval process, message templates and per-conversation pricing, which the product is designed around.
+Registros curtos das escolhas que fiz e por quê. Cada uma veio de uma restrição real de tocar um SaaS sozinho.
 
-## 2. Same-origin proxy for the panel
-The site (Vercel) and the API (Railway) live on different domains. Calling the API cross-origin would require a third-party cookie (`SameSite=None`), which browsers block more every year, especially in private tabs. `vercel.json` rewrites `/admin/api/*` to the API, so the session cookie is first-party with `SameSite=Lax`. The Mercado Pago webhook still goes straight to Railway, since it is server-to-server.
+## 1. API oficial do WhatsApp em vez de bibliotecas não oficiais
+Bibliotecas não oficiais do WhatsApp Web são mais baratas para começar, mas os números são banidos e as sessões caem. Restaurante depende do WhatsApp para faturar, então confiabilidade e conformidade ganharam. O custo é o processo de aprovação da Meta, os templates de mensagem e a cobrança por conversa, e o produto foi desenhado em volta disso.
 
-## 3. No ORM and no auth framework
-The API uses parameterized SQL through `pg`, `scrypt` from Node's standard library for passwords and an HMAC-signed session. Fewer dependencies means fewer supply-chain risks and fewer upgrades to babysit, and every security-relevant line is code I can read and test. The trade-off is writing more SQL by hand, which the test suite covers.
+## 2. Proxy same-origin para o painel
+O site (Vercel) e a API (Railway) estão em domínios diferentes. Chamar a API de outra origem exigiria um cookie de terceiros (`SameSite=None`), que os navegadores bloqueiam mais a cada ano, principalmente em aba anônima. O `vercel.json` redireciona `/admin/api/*` para a API, então o cookie de sessão é first-party com `SameSite=Lax`. O webhook do Mercado Pago continua indo direto para o Railway, porque é servidor com servidor.
 
-## 4. Additive migrations on boot
-Migrations only add (`CREATE ... IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`) and run automatically at startup. Deploying is a `git push`; there is never a manual database step or a migration that can break existing data.
+## 3. Sem ORM e sem framework de autenticação
+A API usa SQL parametrizado pelo `pg`, `scrypt` da biblioteca padrão do Node para as senhas e uma sessão assinada com HMAC. Menos dependências significa menos risco de cadeia de suprimentos e menos atualização para acompanhar, e toda linha que importa para a segurança é código que eu consigo ler e testar. O preço é escrever mais SQL na mão, e a suíte de testes cobre isso.
 
-## 5. AI cascade instead of a single provider
-A single provider failing at dinner time means lost orders. Replies go through an ordered list of providers, accounts and model sizes, and the panel shows how many answers came from each, so I can see degradation before customers notice. OpenAI's structured output is used when available; for fallbacks, JSON is requested by instruction and parsed defensively.
+## 4. Migrações aditivas na inicialização
+As migrações só acrescentam (`CREATE ... IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`) e rodam sozinhas quando a API sobe. Deploy é um `git push`; nunca existe passo manual no banco nem migração capaz de quebrar dado existente.
 
-## 6. Double booking blocked in the database
-Two customers can ask for the same slot within the same second. Checking availability in application code has a race condition, so a unique index on the appointment slot makes the database the final judge: the second booking for the same slot is rejected no matter how close the requests arrive.
+## 5. Cascata de IA em vez de um provedor só
+Um provedor único caindo na hora do jantar significa pedido perdido. As respostas passam por uma lista ordenada de provedores, contas e tamanhos de modelo, e o painel mostra quantas respostas vieram de cada um, então eu vejo a degradação antes do cliente perceber. A saída estruturada da OpenAI é usada quando disponível; nos fallbacks, o JSON é pedido por instrução e lido de forma tolerante.
 
-## 7. Suspension without deletion
-When a payment fails, the tenant gets a grace period and is then suspended: login and the bot stop, but no data is removed. Customers who pay late come back exactly where they were, which reduces churn and support work.
+## 6. Conflito de horário barrado no banco
+Dois clientes podem pedir o mesmo horário no mesmo segundo. Conferir a disponibilidade no código da aplicação tem condição de corrida, então um índice único no horário do agendamento deixa o banco como juiz final: o segundo agendamento no mesmo horário é recusado, não importa o quão próximas cheguem as requisições.
 
-## 8. Vanilla frontend without a build step
-Each page is a self-contained HTML file. For a solo developer this means zero build tooling to maintain, instant deploys and pages that load fast on cheap phones, which is what many restaurant owners use.
+## 7. Suspensão sem apagar dados
+Quando um pagamento falha, o negócio ganha um período de tolerância e depois é suspenso: o login e o bot param, mas nenhum dado é removido. Quem paga atrasado volta exatamente de onde parou, o que reduz cancelamento e trabalho de suporte.
 
-## 9. Embeddings without pgvector
-Semantic search needed vectors, and the obvious choice was pgvector, which the managed PostgreSQL on Railway does not ship. A single business has at most a few hundred menu items, so vectors are stored in a `REAL[]` column and compared with cosine similarity in Node, which takes well under a millisecond at that size. No new infrastructure, no extension to maintain, and the same code runs on any PostgreSQL. If a tenant ever grows into tens of thousands of items, moving to pgvector is a storage change, not a redesign.
+## 8. Frontend puro, sem build
+Cada página é um arquivo HTML autossuficiente. Para quem desenvolve sozinho, isso significa zero ferramenta de build para manter, deploy instantâneo e páginas que carregam rápido em celular barato, que é o que muitos donos de restaurante usam.
 
-## 10. Deterministic eval scorer instead of LLM-as-judge
-Using a model to grade the model is convenient, but then the score drifts with the judge and a regression can hide behind a lenient grade. The bot already returns structured JSON, so the scorer compares fields (event type, item codes and quantities, payment, date) and runs regexes over the text the customer sees. The score is reproducible, and the scorer has its own tests.
+## 9. Embeddings sem pgvector
+A busca semântica precisava de vetores, e a escolha óbvia era o pgvector, que o PostgreSQL gerenciado do Railway não traz. Um negócio tem no máximo algumas centenas de itens no cardápio, então os vetores ficam numa coluna `REAL[]` e são comparados por similaridade de cosseno no Node, o que leva bem menos de um milissegundo nesse tamanho. Nenhuma infraestrutura nova, nenhuma extensão para manter, e o mesmo código roda em qualquer PostgreSQL. Se um dia um negócio chegar a dezenas de milhares de itens, ir para o pgvector é uma mudança de armazenamento, não um redesenho.
 
-## 11. MCP server through the API, not the database
-The MCP server could have connected straight to PostgreSQL. Instead it logs in to the panel API as the owner, the same way the browser does. Every tool call goes through the same tenant scoping, validation, rate limits and audit log as the panel, so an assistant can never see or change another business's data, and there is one less place holding database credentials.
+## 10. Avaliador determinístico em vez de LLM como juiz
+Usar um modelo para dar nota ao modelo é prático, mas aí a nota varia com o juiz e uma regressão pode se esconder atrás de uma nota generosa. O bot já devolve JSON estruturado, então o avaliador compara campos (tipo de evento, códigos e quantidades dos itens, pagamento, data) e roda regex no texto que o cliente vê. A nota é reproduzível, e o avaliador tem os próprios testes.
+
+## 11. Servidor MCP pela API, não pelo banco
+O servidor MCP poderia se conectar direto no PostgreSQL. Em vez disso, ele faz login na API do painel como o dono, do mesmo jeito que o navegador. Cada chamada de ferramenta passa pelo mesmo isolamento entre negócios, validação, rate limit e log de auditoria do painel, então um assistente nunca consegue ver ou mudar dados de outro negócio, e existe um lugar a menos guardando credencial do banco.

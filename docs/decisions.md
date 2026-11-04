@@ -36,3 +36,12 @@ Usar um modelo para dar nota ao modelo é prático, mas aí a nota varia com o j
 
 ## 11. Servidor MCP pela API, não pelo banco
 O servidor MCP poderia se conectar direto no PostgreSQL. Em vez disso, ele faz login na API do painel como o dono, do mesmo jeito que o navegador. Cada chamada de ferramenta passa pelo mesmo isolamento entre negócios, validação, rate limit e log de auditoria do painel, então um assistente nunca consegue ver ou mudar dados de outro negócio, e existe um lugar a menos guardando credencial do banco.
+
+## 12. Benchmark com cada modelo isolado e erro de API fora da nota
+Rodar o eval set pela cascata mede a cascata, não o modelo: se a OpenAI bate limite, o Groq responde e a nota mistura os dois. O benchmark chama um modelo por vez, sem fallback. Erro do provedor (429, resposta vazia, timeout) tenta de novo com espera crescente e, se continuar, conta como erro de API, separado da taxa de acerto. Assim um limite de uso não vira "modelo burro", e o relatório mostra os dois números lado a lado, junto do custo por 1.000 respostas.
+
+## 13. Observabilidade no próprio PostgreSQL
+Ferramentas de observabilidade de LLM resolvem isso, mas seriam mais um serviço, mais uma conta e dado de conversa saindo da minha infraestrutura. Cada chamada vira uma linha em `ai_calls` (provedor, modelo, tentativa, latência, tokens, custo) e cada guardrail uma linha em `ai_guardrails`, gravadas sem bloquear a resposta ao cliente e apagadas depois de 90 dias. O contexto da mensagem viaja por `AsyncLocalStorage`, então a função que chama o modelo não precisa saber de qual negócio ou conversa veio o pedido. Os preços por modelo têm padrão no código e podem ser trocados por variável de ambiente sem deploy.
+
+## 14. Demo pública com o código de produção e teto de custo
+Uma demo com respostas gravadas não prova nada, então a demo usa o mesmo `generateReply`, a mesma cascata e a mesma validação de produção, só que sem banco: a conversa fica em memória e nenhum pedido é criado. O risco é custo, então há quatro limites (por minuto, por dia no total, por visitante e por conversa), mensagem com no máximo 400 caracteres e uma variável que desliga tudo. Os prompts de teste foram limpos antes de ir a público: o nome de uma clínica real e uma chave Pix verdadeira viraram dados fictícios, e um teste garante isso.

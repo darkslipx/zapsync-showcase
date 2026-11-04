@@ -36,3 +36,12 @@ Using a model to grade the model is convenient, but then the score drifts with t
 
 ## 11. MCP server through the API, not the database
 The MCP server could have connected straight to PostgreSQL. Instead it logs in to the panel API as the owner, the same way the browser does. Every tool call goes through the same tenant scoping, validation, rate limits and audit log as the panel, so an assistant can never see or change another business's data, and there is one less place holding database credentials.
+
+## 12. Benchmark each model in isolation, with API errors out of the score
+Running the eval set through the cascade measures the cascade, not the model: if OpenAI hits a rate limit, Groq answers and the score mixes both. The benchmark calls one model at a time, with no fallback. Provider errors (429, empty response, timeout) are retried with growing backoff and, if they persist, counted as API errors, separate from the accuracy rate. A rate limit never becomes a "dumb model", and the report shows both numbers side by side, next to the cost per 1,000 replies.
+
+## 13. Observability in the same PostgreSQL
+LLM observability tools solve this, but they would mean one more service, one more account and conversation data leaving my infrastructure. Every call becomes a row in `ai_calls` (provider, model, attempt, latency, tokens, cost) and every guardrail a row in `ai_guardrails`, written without blocking the customer's reply and purged after 90 days. The message context travels through `AsyncLocalStorage`, so the function that calls the model does not need to know which business or conversation the request came from. Model prices have defaults in code and can be overridden by an environment variable without a deploy.
+
+## 14. Public demo on production code, with a cost ceiling
+A demo with canned answers proves nothing, so the demo runs the same `generateReply`, cascade and validation as production, just without the database: the conversation lives in memory and no order is created. The risk is cost, so there are four caps (per minute, per day overall, per visitor and per conversation), messages of at most 400 characters and a switch that turns it all off. The test prompts were cleaned before going public: the name of a real clinic and a real Pix key became fictional data, and a test makes sure of it.

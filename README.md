@@ -82,7 +82,7 @@ A IA é o produto, então a maior parte da engenharia está em volta do modelo, 
 
 ### Demo pública
 
-Em [zapsync-ia.com.br/demo](https://www.zapsync-ia.com.br/demo) qualquer pessoa conversa com a IA, sem WhatsApp e sem cadastro, numa pizzaria e numa clínica fictícias. É o mesmo `generateReply`, a mesma cascata e a mesma validação de produção. Ao lado do chat aparece o que acontece por dentro: o JSON estruturado, o que a validação contra o cardápio corrigiu (preço, quantidade inventada, item inexistente, total) e o modelo, os tokens e o custo de cada chamada. A conversa fica só em memória, e o backend limita o uso por minuto, por dia, por visitante e por conversa, o que deixa o custo máximo perto de US$ 1,60 por dia.
+Em [zapsync-ia.com.br/demo](https://www.zapsync-ia.com.br/demo) qualquer pessoa conversa com a IA, sem WhatsApp e sem cadastro, numa pizzaria e numa clínica fictícias. É o mesmo `generateReply`, a mesma cascata e a mesma validação de produção. Ao lado do chat aparece o que acontece por dentro: o JSON estruturado, o que a validação contra o cardápio corrigiu (preço, quantidade inventada, item inexistente, total) e o modelo, os tokens e o custo de cada chamada. A conversa fica só em memória, e o backend tem um orçamento diário de US$ 0,20 (uns 30 turnos), além de limites por minuto, por visitante e por conversa. No pior caso, a demo custa uns US$ 6 por mês.
 
 ![Demo pública: conversa real com a IA e o JSON do pedido validado](docs/img/demo-ia.png)
 

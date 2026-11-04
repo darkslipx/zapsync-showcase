@@ -82,7 +82,7 @@ The AI is the product, so most of the engineering effort sits around the model, 
 
 ### Public demo
 
-At [zapsync-ia.com.br/demo](https://www.zapsync-ia.com.br/demo) anyone can chat with the AI, with no WhatsApp and no sign-up, as a fictional pizzeria or clinic. It is the same `generateReply`, the same cascade and the same validation as production. Next to the chat it shows what happens inside: the structured JSON, what the catalog validation corrected (price, made-up quantity, missing item, total) and the model, tokens and cost of each call. Conversations live only in memory, and the backend caps usage per minute, per day, per visitor and per conversation, which keeps the worst case near US$ 1.60 a day.
+At [zapsync-ia.com.br/demo](https://www.zapsync-ia.com.br/demo) anyone can chat with the AI, with no WhatsApp and no sign-up, as a fictional pizzeria or clinic. It is the same `generateReply`, the same cascade and the same validation as production. Next to the chat it shows what happens inside: the structured JSON, what the catalog validation corrected (price, made-up quantity, missing item, total) and the model, tokens and cost of each call. Conversations live only in memory, and the backend has a daily budget of US$ 0.20 (about 30 turns), plus caps per minute, per visitor and per conversation. The worst case is about US$ 6 a month.
 
 ![Public demo: a real conversation with the AI and the validated order JSON](docs/img/demo-ia.png)
 

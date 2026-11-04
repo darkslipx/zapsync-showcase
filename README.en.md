@@ -7,12 +7,13 @@
 ![RAG](https://img.shields.io/badge/RAG-hybrid%20search-0A7EA4)
 ![MCP](https://img.shields.io/badge/MCP-server-111111)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
+[![Demo](https://img.shields.io/badge/demo-live-25D366)](https://www.zapsync-ia.com.br/demo)
 
 [![Português](https://img.shields.io/badge/-Portugu%C3%AAs-lightgrey?style=for-the-badge)](README.md) [![English](https://img.shields.io/badge/-English-0A7EA4?style=for-the-badge)](README.en.md)
 
 **ZapSync is a multi-tenant SaaS I designed, built and run on my own.** Small businesses in Brazil (restaurants, pizzerias, barbershops, clinics) connect their WhatsApp number and an AI assistant answers customers 24/7, takes orders, books appointments and hands the conversation to a human when needed. Owners manage everything in a web panel, and the whole lifecycle (sign-up, WhatsApp connection, billing, suspension) is self-service.
 
-**Live:** [zapsync-ia.com.br](https://www.zapsync-ia.com.br) · **Source code:** private (it is a commercial product). This repository is a public showcase: architecture, engineering decisions and a few representative code excerpts with tests. I am happy to walk through the private code in an interview.
+**Live:** [zapsync-ia.com.br](https://www.zapsync-ia.com.br) · **Try the AI, no sign-up:** [zapsync-ia.com.br/demo](https://www.zapsync-ia.com.br/demo) (in Portuguese) · **Source code:** private (it is a commercial product). This repository is a public showcase: architecture, engineering decisions and a few representative code excerpts with tests. I am happy to walk through the private code in an interview.
 
 ![ZapSync landing page](docs/img/site-desktop.png)
 
@@ -21,10 +22,10 @@
 | | |
 |---|---|
 | **Role** | Solo: product, backend, frontend, infrastructure, billing integration, customer onboarding and support |
-| **Backend** | Node.js + Express, PostgreSQL, ~8,500 lines across 25 modules, plus an MCP server and an eval set |
-| **AI** | Structured outputs, hybrid RAG (keywords + embeddings), output guardrails with self-correction, multimodal input (Whisper, vision), evals against the live model, MCP server |
+| **Backend** | Node.js + Express, PostgreSQL, ~9,100 lines across 27 modules, plus an MCP server, evals and a model benchmark |
+| **AI** | Structured outputs, hybrid RAG (keywords + embeddings), output guardrails with self-correction, multimodal input (Whisper, vision), evals and benchmark against the live model, cost and latency observability, MCP server, public demo |
 | **Frontend** | Vanilla HTML/CSS/JS, no build step, ~5,400 lines (marketing site, owner panel, operator panel) |
-| **Tests** | 158 automated tests against a real PostgreSQL database, run by GitHub Actions on every push |
+| **Tests** | 186 automated tests against a real PostgreSQL database, run by GitHub Actions on every push |
 | **Integrations** | Meta WhatsApp Cloud API (official), OpenAI, Groq, Mercado Pago subscriptions, Google Maps, ViaCEP, SMTP |
 | **Hosting** | Railway (API + Postgres), Vercel (site and panel) |
 
@@ -34,7 +35,7 @@
 - **Order and appointment detection.** The AI extracts structured orders (items, sizes, pizza flavors, options, quantities) and bookings. Double booking is prevented at the database level with a unique index, not only in application code.
 - **Automations:** appointment reminders, stuck-order alerts, post-delivery follow-up with a rating, daily summary to the owner.
 - **Human handoff:** the owner can pause the bot for one conversation and take over.
-- **Owner panel:** dashboard, orders, products (with spreadsheet import), appointments, CRM, reports, settings and an AI diagnostics page.
+- **Owner panel:** dashboard, orders, products (with spreadsheet import), appointments, CRM, reports, settings and an **AI** tab with cost, response time, fallback rate and guardrails.
 - **Self-service onboarding:** invitation-gated sign-up and WhatsApp connection through Meta's **Embedded Signup**, so no one on my side has to touch the customer's Business Manager.
 - **Recurring billing** with Mercado Pago subscriptions: payment confirmation creates the sign-up invite automatically; failed payments trigger a grace period and then automatic suspension (no data is deleted); paying again reactivates instantly.
 - **MCP server** so owners can run the business by talking to an AI assistant (Claude Desktop, Claude Code): "how many orders today?", "the Heineken ran out, take it off the menu", "what did the bot tell this customer?".
@@ -73,8 +74,24 @@ The AI is the product, so most of the engineering effort sits around the model, 
 - **Hybrid RAG.** The menu is retrieved from PostgreSQL on every message. Keyword search (accents, plurals, synonyms) comes first; semantic search with `text-embedding-3-small` and cosine similarity adds what keywords miss ("something to quench my thirst" → soft drinks). Only new or edited items are re-embedded, and it falls back to keyword-only if the embeddings API is down. [hybrid-search.js](snippets/hybrid-search.js)
 - **Guardrails with self-correction.** Three checks catch the failure modes seen in production: the bot claiming an item that exists is unavailable, ignoring the item it was given, or re-asking something it already confirmed. When one fires, the backend calls the model again with a corrective instruction and keeps the new reply only if it passes the same checks.
 - **The model decides what, the database decides how much.** Prices are recomputed from the catalog, a quantity above 1 is reset to 1 when the customer never said a number, and orders are blocked when the store is closed or the POS integration is offline.
-- **Evals.** 12 real conversation turns with expected results (order fields, quantities, cancellations, out-of-menu items, prompt injection, relative dates) run against the live model before any prompt or model change, with repetitions and a minimum pass rate. The scorer is deterministic, with no LLM-as-judge. [eval-scorer.js](snippets/eval-scorer.js)
+- **Evals.** 58 conversation turns in 7 categories (small talk, menu, orders, quantities, cancellations, safety, scheduling), each with its expected result: order fields, change for cash, card brand, swapping an item, out-of-menu items, prompt injection, requests for the system prompt, relative dates and an emergency symptom at the clinic. Twelve came from real production bugs. They run against the live model before any prompt or model change, with repetitions and a minimum pass rate. The scorer is deterministic, with no LLM-as-judge. [eval-scorer.js](snippets/eval-scorer.js)
+- **Model benchmark.** The same eval set against each model in the cascade on its own (gpt-5.4-mini, gpt-oss-120b and gpt-oss-20b): overall and per-category accuracy, p50/p95 latency, tokens, cost per 1,000 replies and the cases each model always or sometimes fails. Provider errors (429, timeouts) are retried with backoff and kept out of the accuracy rate, so a rate limit never looks like a dumb model. This is the number behind the order of the cascade.
+- **Observability.** Every model call (reply, guardrail correction, audio, image, embedding) is recorded with provider, model, position in the cascade, latency, tokens and estimated cost, and every guardrail that fires is recorded with its reason and whether the correction worked. The context (business and conversation) follows the message through `AsyncLocalStorage`, without threading parameters through the whole stack. The panel's **AI** tab shows it to the owner, and the MCP `saude_da_ia` tool reads the same data.
 - **MCP server.** 16 tools (orders, bookings, menu availability and prices, CRM, conversations, pausing the bot, reports, AI health). It talks to the panel API logged in as the owner instead of touching the database, so it inherits tenant isolation, validation and audit logging. Write tools are flagged `destructiveHint` so the assistant asks before acting.
+
+### Public demo
+
+At [zapsync-ia.com.br/demo](https://www.zapsync-ia.com.br/demo) anyone can chat with the AI, with no WhatsApp and no sign-up, as a fictional pizzeria or clinic. It is the same `generateReply`, the same cascade and the same validation as production. Next to the chat it shows what happens inside: the structured JSON, what the catalog validation corrected (price, made-up quantity, missing item, total) and the model, tokens and cost of each call. Conversations live only in memory, and the backend caps usage per minute, per day, per visitor and per conversation, which keeps the worst case near US$ 1.60 a day.
+
+![Public demo: a real conversation with the AI and the validated order JSON](docs/img/demo-ia.png)
+
+*A real conversation with gpt-5.4-mini in production: 5 messages to a closed order, US$ 0.034 in total.*
+
+### The panel's AI tab
+
+![Panel AI tab with cost, response time, models, guardrails and failures](docs/img/painel-ia.png)
+
+*Local environment with sample data.*
 
 ## Engineering highlights
 
@@ -87,6 +104,8 @@ The AI is the product, so most of the engineering effort sits around the model, 
 | Keyword search found nothing for "something to drink", so the bot told customers it was "having trouble" | Hybrid retrieval: embeddings add what keyword search misses, re-embedding only changed items | [hybrid-search.js](snippets/hybrid-search.js) |
 | "It looked fine in two test chats" is not a release criterion for a prompt change | Eval set against the live model with a deterministic scorer and a minimum pass rate | [eval-scorer.js](snippets/eval-scorer.js) |
 | A logged-in owner must never see another business's data | `business_id` only from the signed session, every query scoped, same 404 for "missing" and "not yours", cross-tenant tests | [tenant-scope.js](snippets/tenant-scope.js) |
+| I did not know what each reply cost or how often the fallback was answering | Every call recorded with tokens, latency and cost, guardrails with reason and outcome, all in a panel tab | [docs/decisions.en.md](docs/decisions.en.md) |
+| The order of the cascade was picked on gut feeling | Benchmark running the same eval set on each model in isolation, measuring accuracy, latency and cost | [docs/decisions.en.md](docs/decisions.en.md) |
 | Third-party cookies are blocked more and more by browsers | Panel calls the API through a Vercel same-origin proxy, so the session cookie is first-party (`SameSite=Lax`) | [docs/decisions.en.md](docs/decisions.en.md) |
 
 All excerpts are simplified from production code and covered by tests in [snippets/test](snippets/test) (`npm test`).
@@ -102,8 +121,8 @@ All excerpts are simplified from production code and covered by tests in [snippe
 
 ## Testing and operations
 
-- `node --test` suite with 158 cases running serially against a real PostgreSQL: tenant isolation, sign-up races, password recovery, catalog and pizza flavors, time zones in scheduling, AI order extraction, hybrid search (with a deterministic fake embedder), the MCP server end to end, and regression cases taken from real production logs.
-- **CI on GitHub Actions:** every push spins up PostgreSQL 17 and runs the whole suite; the evals against the live model run on demand in the same workflow and upload their results as an artifact.
+- `node --test` suite with 186 cases running serially against a real PostgreSQL: tenant isolation, sign-up races, password recovery, catalog and pizza flavors, time zones in scheduling, AI order extraction, hybrid search (with a deterministic fake embedder), the MCP server end to end, observability, the demo's limits and validation, and regression cases taken from real production logs.
+- **CI on GitHub Actions:** every push spins up PostgreSQL 17 and runs the whole suite; the evals and the benchmark against the live model run on demand in the same workflow and upload their results as an artifact.
 - Additive, idempotent migrations run on boot, so a deploy never needs manual database steps.
 - CLI scripts for operations: create invites, grant operator access, create billing plans, bulk-import menus from other POS systems.
 
@@ -123,7 +142,7 @@ Full landing page: [docs/img/site-full.png](docs/img/site-full.png)
 
 ## About me
 
-I'm **Abner Duarte**, from Brazil: technical support analyst (N2/N3 and implementation) moving into cloud support and software engineering. I speak English fluently and I'm studying for AWS certifications.
+I'm **Abner Duarte**, from Brazil. I come from years of N2/N3 technical support and implementation in food-service software, and my focus now is **AI engineering**: LLM applications in production, RAG, agents, evals and observability. ZapSync is where I do that for real, with paying customers. Fluent in English, with a cloud (AWS) background.
 GitHub: [@darkslipx](https://github.com/darkslipx)
 
 ---
